@@ -28,7 +28,7 @@ def readFileInfo(path : str) -> cv2.VideoCapture:
     minu = int(seg/60)
     seg = int(seg % 60)
     print("Duração: {}m{}s".format(minu, seg))
-    return cap, fps, num_frames
+    return cap, fps, num_frames, int(Application.secondsSelect)
 
 def getRoiArea(frame: np.array):    
     fig, ax = plt.subplots()
@@ -62,14 +62,12 @@ def run():
     
     # Criacao variaveis
     name = Application.filename
-    video, fps, n_frames = readFileInfo(name)
+    video, fps, n_frames, timeSelectArea = readFileInfo(name)
     
-    _, frame = video.read()
-    coords = getRoiArea(frame)
-    
+    coords = []
     mean_values = []
     frame_log = []
-    frameCounter = 1
+    frameCounter = 0
     # Processamento
     while video.isOpened():
         ret, frame = video.read()
@@ -80,15 +78,27 @@ def run():
         print(f"\rProcessando: {(frameCounter * 100.0) / n_frames:.2f}%", end="")
         frameCounter += 1
         
+        if(frameCounter < (timeSelectArea * fps) + 1):
+            continue
+        if(frameCounter == (timeSelectArea * fps) + 1):
+            coords = getRoiArea(frame)
+        
+        
         # Filtros e cortes
         frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         frame_roi_gray = frame_gray[coords[1]:coords[3],coords[0]:coords[2]]
         
+        
+        # Barras coração
+        frame_barra = cv2.cvtColor(frame_gray, cv2.COLOR_GRAY2BGR)
+        frame_barra = cv2.rectangle(frame_barra, (coords[0], coords[1]), (coords[0] + 5, coords[3]), (0,0,255), -1)
+        frame_barra = cv2.rectangle(frame_barra, (coords[2], coords[1]), (coords[2] - 5, coords[3]), (0,0,255), -1)
+        
         # Exibicao
-        #cv2.imshow("Video", frame_gray)
-        #cv2.imshow("Regiao interesse", frame_roi_gray)
-        # if cv2.waitKey(30) & 0xFF == ord('q'):
-        #     break
+        cv2.imshow("Video", frame_barra)
+        cv2.imshow("Regiao interesse", frame_roi_gray)
+        if cv2.waitKey(30) & 0xFF == ord('q'):
+            break
         
         # Contagem
         img_mean = np.mean(frame_roi_gray)
@@ -102,46 +112,32 @@ def run():
     
     frame_log = np.array(frame_log)
     mean_values = np.array(mean_values)
-    peaks, _ = find_peaks(mean_values, prominence=0.7)  # Min de 0.5s
+    peaks, _ = find_peaks(mean_values, prominence=0.7)
     
     
     # Calculo BPM
     print(f"\nMedia intensidade ROI: {np.mean(mean_values)}")
     print(f"Maior intensidade ROI: {np.max(mean_values)}")
     
-    duration_sec = len(mean_values) / fps
+    duration_sec = (n_frames - (timeSelectArea * fps)) / fps
     bpm = (len(peaks) / duration_sec) * 60
     
     print(f"Segs: {duration_sec}, BPM: {bpm}")
     
     # Transformar de frames para segundo
-    seconds = np.arange(n_frames-1) / fps
-    peaks_seconds = peaks / fps
-    
-    
-    # Calculo area coracao
-    std_image = np.std(frame_log, axis=0)
-    std_norm = cv2.normalize(std_image, None, 0, 255, cv2.NORM_MINMAX)
-    std_norm = std_norm.astype(np.uint8)
-    
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-    std_eq = clahe.apply(std_norm)
-    
-    _, thresh = cv2.threshold(std_eq, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-    thresh_clean = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=1)
-    
-    cv2.imshow('Desvio Padrao Temporal', thresh_clean)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    seconds = np.arange(n_frames) / fps
+    peaks_seconds = (peaks / fps) + timeSelectArea
     
     # Exibir gráfico
-    plt.plot(seconds, mean_values)
+    plt.plot(seconds[timeSelectArea * fps:], mean_values)
     plt.plot(peaks_seconds, mean_values[peaks], 'ro', label="Picos")
     plt.xlabel("Segundos")
     plt.ylabel("Intensidade Média")
     plt.legend()
     plt.show()
+    
+    Application.window.quit()
+    Application.window.destroy()
 
 def main():
     Application.window.mainloop()
