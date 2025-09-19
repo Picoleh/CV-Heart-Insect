@@ -1,119 +1,241 @@
-import tkinter
+import tkinter as tk
 
 from tkinter import *
 from tkinter import filedialog
 from tkinter import messagebox
 from tkinter import ttk
 import os
-import sys
+import cv2
 
 import mainNew
 
+# Vars init
 filename      = None
 minuteDetail  = None
 secondsSelect = None
+console = None
+timeState = False
+showVideoState = True
 
-def load () :
+root = Tk()
+container = tk.Frame(root)
+mainWindow = tk.Frame(container)
+
+# Basic configs
+root.title('Heartbeat Analyzer')
+root.geometry ('393x190')
+root.resizable(0,0)
+container.pack(fill="both", expand=True)
+loadingWindow = tk.Frame(container)
+loadingWindow.grid(row=0, column=0, sticky="nsew")
+mainWindow.grid(row=0, column=0, sticky="nsew")
+mainWindow.tkraise()
+
+# Commands
+def load() : # Get file in os
     global filename
-    filename = filedialog.askopenfilename (
-        title='Select File',
-        initialdir = os.path.expanduser ('~')
-    )
-    if ((filename == None) or ((type (filename) is tuple)) or (filename == '')) :
+    filename = filedialog.askopenfilename(title='Select File', initialdir = os.path.expanduser('~'))
+    if ((filename == None) or ((type(filename) is tuple)) or (filename == '')) :
         btnVideo['text'] = '...'
     else :
-        btnVideo['text'] = os.path.basename (filename)
+        btnVideo['text'] = os.path.basename(filename)
 
-def execute () :
+def execute() : # Handles the main execution of the program
     global minuteDetail, secondsSelect
-    minuteDetail  = entMinute.get ()
-    secondsSelect = entSelArea.get ()
+    minuteDetail  = entMinute.get()
+    secondsSelect = entSelArea.get()
 
     if ((filename == None) or ((type(filename) is tuple)) or (filename == '')) :
         messagebox.showwarning ('Required Field', 'Select video file')
-        btnVideo.focus ()
+        btnVideo.focus()
         return
 
     if (minuteDetail == '') :
         messagebox.showwarning ('Required Field', 'Fill "Analysis time step (in minute)" field')
-        entMinute.focus ()
+        entMinute.focus()
         return
 
     if (secondsSelect == '') :
-        messagebox.showwarning ('Required Field', 'Fill "When to select area? (in seconds, separated by ,)" field')
-        entSelArea.focus ()
+        messagebox.showwarning ('Required Field', 'Fill "When to select area? (in seconds)" field')
+        entSelArea.focus()
+        return
+    
+    if(int(minuteDetail) <= 0):
+        messagebox.showwarning ('Wrong Value', 'Inform a value > 0')
+        entMinute.focus()
+        return
+    
+    if(int(secondsSelect) < 0):
+        messagebox.showwarning ('Wrong Value', 'Inform a value >= 0')
+        entSelArea.focus()
         return
 
+    # Get basic video info
+    cap = cv2.VideoCapture(filename)
+    fps = int(cap.get(cv2.CAP_PROP_FPS))
+    num_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    timeSelectArea = 60 * int(secondsSelect) if timeState else int(secondsSelect)
+    step = 60 * int(minuteDetail) if timeState else int(minuteDetail)
+    frame_index = int(timeSelectArea * fps)
+    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+    ret, frame = cap.read()
+    if not ret:
+        messagebox.showerror("Erro", "Não foi possível ler o frame para seleção de ROI.")
+        return
 
-    window.withdraw ()
-    mainNew.run ()
+    coords = mainNew.getRoiArea(frame)
+    if not coords:
+        messagebox.showwarning("Aviso", "Nenhuma ROI selecionada.")
+        return
 
+    # Shows loading window
+    loadingWindow.tkraise()
 
-window = Tk ()
-window.title('Heartbeat Analyzer')
-window.geometry ('500x200')
-window.resizable (0,0)
+    def callback(porcentagem=None, finished=False):
+        if porcentagem is not None:
+            atualizar_barra(porcentagem)
+        if finished:
+            mainWindow.tkraise()
 
-console = None
+    gen = mainNew.run_generator(cap, fps, num_frames, coords, showVideoState, callback)
+    
+    def show_next_frame():
+        try:
+            frame_barra, frame_roi, delay = next(gen)
+            if showVideoState:
+                cv2.imshow("Video", frame_barra)
+                cv2.imshow("Regiao interesse", frame_roi)
+                cv2.waitKey(delay)
+            root.after(1, show_next_frame)
+        except StopIteration as e:
+            cv2.destroyAllWindows()
+            mean_values = e.value  # Get appended values
+            mainNew.processar_resultados(mean_values, timeState, num_frames, timeSelectArea, fps, step, filename)
+
+    show_next_frame()
+
+def atualizar_barra(porcentagem):
+    loadingBar['value'] = porcentagem
+    lblPorcentagem['text'] = f"{porcentagem:.0f}%"
+    root.update_idletasks()
+
+def changeTimeState():
+    global timeState
+    timeState = not timeState
+    btnTime.config(text="Minutes" if timeState else "Seconds")
+    lblTimeStep.config(text="Analysis time step (in minutes)" if timeState else "Analysis time step (in seconds)")
+    lblSelArea.config(text='Fill "When to select area? (in minutes)' if timeState else 'Fill "When to select area? (in seconds)')
+    
+def changeShowVideoState():
+    global showVideoState
+    showVideoState = not showVideoState
+    if showVideoState:
+        btnShowVideo.config(text="Show Video")
+    else:
+        btnShowVideo.config(text="Hide Video")
+
+def on_close():
+    print("Encerrando...")
+    root.destroy()
+    root.quit()
 
 try:
     try:
-        window.tk.call ('tk_getOpenFile', '-foobarbaz')
+        mainWindow.tk.call('tk_getOpenFile', '-foobarbaz')
     except TclError:
         pass
 
-    window.tk.call ('set', '::tk::dialog::file::showHiddenBtn', '1')
-    window.tk.call ('set', '::tk::dialog::file::showHiddenVar', '0')
+    mainWindow.tk.call('set', '::tk::dialog::file::showHiddenBtn', '1')
+    mainWindow.tk.call('set', '::tk::dialog::file::showHiddenVar', '0')
 except:
     pass
-
-
-lblVideo = Label (
-    window,
+# --------
+# Widgets
+lblVideo = Label(
+    mainWindow,
     text = 'Select video file'
 )
 
-
-btnVideo = ttk.Button (
-    window,
+btnVideo = ttk.Button(
+    mainWindow,
     text    = '...',
     command = load,
     style   = "File.TButton"
 )
 
-lblMinute = Label (
-    window,
-    text = 'Analysis time step (in minute)'
+lblTime = Label(
+    mainWindow,
+    text = 'Time dimension'
 )
 
-entMinute = Entry (window)
-
-lblSelArea = Label (
-    window,
-    text = 'Fill "When to select area? (in seconds, separated by ,)'
+lblShowVideo = Label(
+    mainWindow,
+    text = 'Video display'
 )
 
-entSelArea = Entry (window)
+btnTime = ttk.Button(
+    mainWindow,
+    text="Seconds",
+    command=changeTimeState
+    )
 
-btnExecute = ttk.Button (
-    window,
+btnShowVideo = ttk.Button(
+    mainWindow,
+    text="Show Video",
+    command=changeShowVideoState,
+    )
+
+lblTimeStep = Label(
+    mainWindow,
+    text = 'Analysis time step (in seconds)'
+)
+
+entMinute = Entry(mainWindow)
+
+lblSelArea = Label(
+    mainWindow,
+    text = 'Fill "When to select area?" (in seconds)'
+)
+
+entSelArea = Entry(mainWindow)
+
+btnExecute = ttk.Button(
+    mainWindow,
     text    = 'Execute',
     command = execute,
     style   = 'Execute.TButton'
 )
 
-lblVideo.grid   (row=0, column=0,padx=5,pady=10, sticky=W)
-btnVideo.grid   (row=0, column=1, sticky=E+W)
-lblMinute.grid  (row=1, column=0, padx=5,pady=5, columnspan=2, sticky=W)
-entMinute.grid  (row=2, column=0, padx=5,pady=0, columnspan=2, sticky=W)
-lblSelArea.grid (row=3, column=0, padx=5,pady=5, columnspan=2, sticky=W)
-entSelArea.grid (row=4, column=0, padx=5,pady=0, columnspan=2, sticky=W)
-btnExecute.place (relx=0.5, rely=0.85, anchor=CENTER)
+loadingBar = ttk.Progressbar(loadingWindow, length=300, mode='determinate', maximum=100)
+lblPorcentagem = tk.Label(loadingWindow, text="0%")
 
+# --------
+# Layout 
+lblVideo.grid(row=0, column=0,padx=5,pady=10, sticky=W)
+btnVideo.grid(row=0, column=1, sticky=EW)
+
+lblTime.grid(row=1, column=0,padx=5,pady=5, sticky=EW)
+lblShowVideo.grid(row=1, column=1,padx=5,pady=5, sticky=EW)
+
+btnTime.grid(row=2, column=0, sticky=EW)
+btnShowVideo.grid(row=2, column=1, sticky=EW)
+
+lblTimeStep.grid(row=3, column=0, padx=5,pady=5, sticky=EW)
+lblSelArea.grid(row=3, column=1, padx=5,pady=5, sticky=EW)
+
+entMinute.grid(row=4, column=0, padx=5,pady=0, sticky=EW)
+entSelArea.grid(row=4, column=1, padx=5,pady=0, sticky=EW)
+btnExecute.grid(row=5,column=1, sticky=E, padx=10, pady=10)
+# |||||||||
+loadingBar.grid(row=0, column=0, columnspan=2, pady=20, padx=10)
+lblPorcentagem.grid(row=1, column=0, columnspan=2)
+# --------
+
+# Styles
 style = ttk.Style()
 style.theme_use ("alt")
 
-style.map (
+style.map(
     "Execute.TButton",
     foreground = [
        ('!active','white'),
@@ -127,7 +249,7 @@ style.map (
     ]
 )
 
-style.map (
+style.map(
     "File.TButton",
     foreground = [
        ('!active','#fff'),
@@ -140,18 +262,7 @@ style.map (
        ('active','#ff8c82'),
     ]
 )
+# --------
 
-
-# class PrintLogger():
-#     def __init__(self, textbox):
-#         self.textbox = textbox
-
-#     def write(self, text):
-#         self.textbox.insert(END, text)
-
-#     def flush(self):
-#         pass
-
-
-
-
+root.protocol("WM_DELETE_WINDOW", on_close)
+root.mainloop()
