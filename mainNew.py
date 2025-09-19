@@ -32,12 +32,65 @@ def getRoiArea(frame: np.array): # Get the coordinates of the ROI selected, retu
     plt.show(block=True)
     
     if coords:
-        return coords['x1'], coords['y1'], coords['x2'], coords['y2']
+        return coords
     else:
         return None
 
-def run_generator(video, fps: int, num_frames: int, coords: list,
-                  showVideoMode: bool, callback=None): # Apply filters and crops to video/Send frames to Application show/Stores frames info
+def drawRectangle(frame_gray: np.ndarray, coords: dict, vidOrHorizontal: bool, barWidth = 5):
+    # Expand regions by boxSize ammount and aplies a binary threshold
+    if vidOrHorizontal:
+        boxSize = int((coords['y2'] - coords['y1']) / 2)
+        heart_roi_1 = frame_gray[coords['y1'] - boxSize : coords['y1'] + boxSize, coords['x1']: coords['x2']] # Up
+        heart_roi_2 = frame_gray[coords['y2'] - boxSize : coords['y2'] + boxSize, coords['x1']: coords['x2']] # Down
+    else:
+        boxSize = int((coords['x2'] - coords['x1']) / 2)
+        heart_roi_1 = frame_gray[coords['y1']:coords['y2'], coords['x1'] - boxSize: coords['x1'] + boxSize] # Left
+        heart_roi_2 = frame_gray[coords['y1']:coords['y2'], coords['x2'] - boxSize: coords['x2'] + boxSize] # Right
+    
+    _, heart_roi_1_thres = cv2.threshold(heart_roi_1, 127, 255, cv2.THRESH_BINARY)
+    _, heart_roi_2_thres = cv2.threshold(heart_roi_2, 127, 255, cv2.THRESH_BINARY)
+
+    # Calculates the percentage of white pixels and the offset determined by it 
+    bright_percen_1 = np.count_nonzero(heart_roi_1_thres == 255) / heart_roi_1_thres.size
+    offset_1 = int(100 * (bright_percen_1 - 0.5))
+    bright_percen_2 = np.count_nonzero(heart_roi_2_thres == 255) / heart_roi_2_thres.size
+    offset_2 = int(100 * (bright_percen_2 - 0.5))
+
+    # Turns frame back to BGR and draws the red bars
+    frame_barra = cv2.cvtColor(frame_gray, cv2.COLOR_GRAY2BGR)
+
+    if vidOrHorizontal:
+        frame_barra = cv2.rectangle(
+            frame_barra,
+            (coords['x1'], coords['y1'] + offset_1),
+            (coords['x2'], coords['y1'] + offset_1 + barWidth),
+            (0,0,255), -1
+        )
+        frame_barra = cv2.rectangle(
+            frame_barra,
+            (coords['x1'], coords['y2'] - offset_2),
+            (coords['x2'], coords['y2'] - offset_2 - barWidth),
+            (0,0,255), -1
+        )
+    else:
+        frame_barra = cv2.rectangle(
+            frame_barra,
+            (coords['x1'] + offset_1, coords['y1']),
+            (coords['x1'] + offset_1 + barWidth, coords['y2']),
+            (0,0,255), -1
+        )
+        
+        frame_barra = cv2.rectangle(
+            frame_barra,
+            (coords['x2'] - offset_2, coords['y1']),
+            (coords['x2'] - offset_2 - barWidth, coords['y2']),
+            (0,0,255), -1
+        )
+
+    return frame_barra
+
+def run_generator(video, fps: int, num_frames: int, coords: dict,
+                  videoOrientationHorizontal: bool, callback=None): # Apply filters and crops to video/Send frames to Application show/Stores frames info
     
     mean_values = [] # Variable that stores the average brightness of the ROI
     frameCounter = int(video.get(cv2.CAP_PROP_POS_FRAMES))
@@ -54,38 +107,9 @@ def run_generator(video, fps: int, num_frames: int, coords: list,
 
         # Turns frame to grayscale and crops it
         frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        frame_roi_gray = frame_gray[coords[1]:coords[3], coords[0]:coords[2]]
+        frame_roi_gray = frame_gray[coords['y1']:coords['y2'], coords['x1']:coords['x2']]
 
-        #frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        #frame_roi_gray = frame_gray[coords[1]:coords[3],coords[0]:coords[2]]
-
-        # Expand regions to right and left of ROI (60) and aplies a binary threshold
-        heart_roi_left = frame_gray[coords[1]:coords[3], coords[0] - 60: coords[0] + 60]
-        _, heart_roi_left_thres = cv2.threshold(heart_roi_left, 127, 255, cv2.THRESH_BINARY)
-        heart_roi_right = frame_gray[coords[1]:coords[3], coords[2] - 60: coords[2] + 60]
-        _, heart_roi_right_thres = cv2.threshold(heart_roi_right, 127, 255, cv2.THRESH_BINARY)
-        
-        # Calculates the percentage of white pixels and the offset determined by it 
-        bright_percen_left = np.count_nonzero(heart_roi_left_thres == 255) / heart_roi_left_thres.size
-        offset_left = int(100 * (bright_percen_left - 0.5))
-        bright_percen_right = np.count_nonzero(heart_roi_right_thres == 255) / heart_roi_right_thres.size
-        offset_right = int(100 * (bright_percen_right - 0.5))
-        
-        # Turns frame back to BGR and draws the red bars
-        frame_barra = cv2.cvtColor(frame_gray, cv2.COLOR_GRAY2BGR)
-        frame_barra = cv2.rectangle(
-            frame_barra,
-            (coords[0] + offset_left, coords[1]),
-            (coords[0] + offset_left + 5, coords[3]),
-            (0,0,255), -1
-        )
-        
-        frame_barra = cv2.rectangle(
-            frame_barra,
-            (coords[2] - offset_right,coords[1]),
-            (coords[2] -offset_right - 5, coords[3]),
-            (0,0,255), -1
-        )
+        frame_barra = drawRectangle(frame_gray, coords, videoOrientationHorizontal)
 
         # Stores the brightness of the ROI
         img_mean = np.mean(frame_roi_gray)
