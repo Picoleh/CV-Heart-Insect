@@ -188,8 +188,10 @@ def processar_resultados(mean_values: np.ndarray, timeMode: bool, num_frames: in
     plt.title(f'BPM por janela de {step} {title}')
     
     # Create PDF
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    pdf_filename = f"relatorio_{timestamp}.pdf"
+    #timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    short_filename = fileName.split('/')[-1]
+    short_filename = short_filename.replace(".mp4", "")
+    pdf_filename = f"relatorio_{short_filename}.pdf"
 
     
     report_text = f"[Video Info]\nFile Name: {fileName} \nFPS: {fps} \nFrames: {num_frames} \nBPM: {bpm:.2f} \
