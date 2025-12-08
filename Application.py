@@ -94,13 +94,19 @@ def execute() : # Handles the main execution of the program
     # Shows loading window
     loadingWindow.tkraise()
 
+    w = coords['x2'] - coords['x1']
+    h = coords['y2'] - coords['y1']
+    roi_tracker = (int(coords['x1']), int(coords['y1']), int(w), int(h))
+    tracker = cv2.TrackerMIL_create()
+    tracker.init(frame, roi_tracker)
+
     def callback(porcentagem=None, finished=False):
         if porcentagem is not None:
             atualizar_barra(porcentagem)
         if finished:
             mainWindow.tkraise()
 
-    gen = mainNew.run_generator(cap, fps, num_frames, coords, videoOrientationState, callback)
+    gen = mainNew.run_generator(cap, fps, num_frames, coords, videoOrientationState, tracker, callback)
     
     def show_next_frame():
         try:

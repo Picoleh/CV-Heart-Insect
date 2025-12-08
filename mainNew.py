@@ -36,17 +36,26 @@ def getRoiArea(frame: np.array): # Get the coordinates of the ROI selected, retu
     else:
         return None
 
-def drawRectangle(frame_gray: np.ndarray, coords: dict, vidOrHorizontal: bool, barWidth = 5):
+def drawRectangle(frame_gray: np.ndarray, x:int, y:int, width:int, height:int, vidOrHorizontal: bool, barWidth = 5):
     # Expand regions by boxSize ammount and aplies a binary threshold
-    if vidOrHorizontal:
-        boxSize = int((coords['y2'] - coords['y1']) / 2)
-        heart_roi_1 = frame_gray[coords['y1'] - boxSize : coords['y1'] + boxSize, coords['x1']: coords['x2']] # Up
-        heart_roi_2 = frame_gray[coords['y2'] - boxSize : coords['y2'] + boxSize, coords['x1']: coords['x2']] # Down
-    else:
-        boxSize = int((coords['x2'] - coords['x1']) / 2)
-        heart_roi_1 = frame_gray[coords['y1']:coords['y2'], coords['x1'] - boxSize: coords['x1'] + boxSize] # Left
-        heart_roi_2 = frame_gray[coords['y1']:coords['y2'], coords['x2'] - boxSize: coords['x2'] + boxSize] # Right
+    #if vidOrHorizontal:
+    #    boxSize = int((coords['y2'] - coords['y1']) / 2)
+    #    heart_roi_1 = frame_gray[coords['y1'] - boxSize : coords['y1'] + boxSize, coords['x1']: coords['x2']] # Up
+    #    heart_roi_2 = frame_gray[coords['y2'] - boxSize : coords['y2'] + boxSize, coords['x1']: coords['x2']] # Down
+    #else:
+    #    boxSize = int((coords['x2'] - coords['x1']) / 2)
+    #    heart_roi_1 = frame_gray[coords['y1']:coords['y2'], coords['x1'] - boxSize: coords['x1'] + boxSize] # Left
+    #    heart_roi_2 = frame_gray[coords['y1']:coords['y2'], coords['x2'] - boxSize: coords['x2'] + boxSize] # Right
     
+    if vidOrHorizontal:
+        boxSize = int(height / 2)
+        heart_roi_1 = frame_gray[y - boxSize : y + boxSize, x: x+width] # Up
+        heart_roi_2 = frame_gray[y + height - boxSize : y + height + boxSize, x: x+width] # Down
+    else:
+        boxSize = int(width / 2)
+        heart_roi_1 = frame_gray[y:y+height, x - boxSize: x + boxSize] # Left
+        heart_roi_2 = frame_gray[y:y+height, x + width - boxSize: x + width + boxSize] # Right
+
     _, heart_roi_1_thres = cv2.threshold(heart_roi_1, 127, 255, cv2.THRESH_BINARY)
     _, heart_roi_2_thres = cv2.threshold(heart_roi_2, 127, 255, cv2.THRESH_BINARY)
 
@@ -62,35 +71,35 @@ def drawRectangle(frame_gray: np.ndarray, coords: dict, vidOrHorizontal: bool, b
     if vidOrHorizontal:
         frame_barra = cv2.rectangle(
             frame_barra,
-            (coords['x1'], coords['y1'] + offset_1),
-            (coords['x2'], coords['y1'] + offset_1 + barWidth),
+            (x, y + offset_1),
+            (x + width, y + offset_1 + barWidth),
             (0,0,255), -1
         )
         frame_barra = cv2.rectangle(
             frame_barra,
-            (coords['x1'], coords['y2'] - offset_2),
-            (coords['x2'], coords['y2'] - offset_2 - barWidth),
+            (x, y + height - offset_2),
+            (x + width, y + height - offset_2 - barWidth),
             (0,0,255), -1
         )
     else:
         frame_barra = cv2.rectangle(
             frame_barra,
-            (coords['x1'] + offset_1, coords['y1']),
-            (coords['x1'] + offset_1 + barWidth, coords['y2']),
+            (x + offset_1, y),
+            (x + offset_1 + barWidth, y + height),
             (0,0,255), -1
         )
         
         frame_barra = cv2.rectangle(
             frame_barra,
-            (coords['x2'] - offset_2, coords['y1']),
-            (coords['x2'] - offset_2 - barWidth, coords['y2']),
+            (x + width - offset_2, y),
+            (x + width - offset_2 - barWidth, y + height),
             (0,0,255), -1
         )
 
     return frame_barra
 
 def run_generator(video, fps: int, num_frames: int, coords: dict,
-                  videoOrientationHorizontal: bool, callback=None): # Apply filters and crops to video/Send frames to Application show/Stores frames info
+                  videoOrientationHorizontal: bool, tracker, callback=None): # Apply filters and crops to video/Send frames to Application show/Stores frames info
     
     mean_values = [] # Variable that stores the average brightness of the ROI
     frameCounter = int(video.get(cv2.CAP_PROP_POS_FRAMES))
@@ -105,11 +114,18 @@ def run_generator(video, fps: int, num_frames: int, coords: dict,
 
         frameCounter += 1
 
+        trackingSucess, roi_tracked = tracker.update(frame)
+        if not trackingSucess:
+            cv2.putText(frame, "Tracking perdido!", (20, 40),cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255), 2)
+            
+        x, y, w, h = map(int, roi_tracked)
+        #cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
         # Turns frame to grayscale and crops it
         frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        frame_roi_gray = frame_gray[coords['y1']:coords['y2'], coords['x1']:coords['x2']]
+        #frame_roi_gray = frame_gray[coords['y1']:coords['y2'], coords['x1']:coords['x2']]
+        frame_roi_gray = frame_gray[y:y+h, x:x+w]
 
-        frame_barra = drawRectangle(frame_gray, coords, videoOrientationHorizontal)
+        frame_barra = drawRectangle(frame_gray, x, y, w, h, videoOrientationHorizontal)
 
         # Stores the brightness of the ROI
         img_mean = np.mean(frame_roi_gray)
@@ -191,11 +207,13 @@ def processar_resultados(mean_values: np.ndarray, timeMode: bool, num_frames: in
     #timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     short_filename = fileName.split('/')[-1]
     short_filename = short_filename.replace(".mp4", "")
-    pdf_filename = f"relatorio_{short_filename}.pdf"
-
+    pdf_filename = f"{short_filename}.pdf"
+    dataAnalise = datetime.today().strftime("%d/%m/%Y")
+    horaAnalise = datetime.today().strftime("%H:%M:%S")
     
     report_text = f"[Video Info]\nFile Name: {fileName} \nFPS: {fps} \nFrames: {num_frames} \nBPM: {bpm:.2f} \
-    \nMedia de intensidade na ROI: {intensity_avg:.2f} \nMaior intensidade na ROI: {greatest_intensity:.2f} \n"
+    \nMedia de intensidade na ROI: {intensity_avg:.2f} \nMaior intensidade na ROI: {greatest_intensity:.2f} \
+    \nData: {dataAnalise} - {horaAnalise}\n"
     with PdfPages(pdf_filename) as pdf:
         pdf.savefig(fig1)
         pdf.savefig(fig2)
