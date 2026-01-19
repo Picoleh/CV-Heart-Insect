@@ -12,7 +12,8 @@ import mainNew
 # Vars init
 filename      = None
 minuteDetail  = None
-secondsSelect = None
+startTime = None
+endTime = None
 console = None
 timeState = False
 showVideoState = True
@@ -44,9 +45,10 @@ def load() : # Get file in os
         btnVideo['text'] = os.path.basename(filename)
 
 def execute() : # Handles the main execution of the program
-    global minuteDetail, secondsSelect
+    global minuteDetail, startTime, endTime
     minuteDetail  = entMinute.get()
-    secondsSelect = entSelArea.get()
+    startTime = entStartTime.get()
+    endTime = entEndTime.get()
 
     if ((filename == None) or ((type(filename) is tuple)) or (filename == '')) :
         messagebox.showwarning ('Required Field', 'Select video file')
@@ -58,9 +60,9 @@ def execute() : # Handles the main execution of the program
         entMinute.focus()
         return
 
-    if (secondsSelect == '') :
+    if (startTime == '') :
         messagebox.showwarning ('Required Field', 'Fill "When to select area? (in seconds)" field')
-        entSelArea.focus()
+        entStartTime.focus()
         return
     
     if(int(minuteDetail) <= 0):
@@ -68,18 +70,32 @@ def execute() : # Handles the main execution of the program
         entMinute.focus()
         return
     
-    if(int(secondsSelect) < 0):
+    if(int(startTime) < 0):
         messagebox.showwarning ('Wrong Value', 'Inform a value >= 0')
-        entSelArea.focus()
+        entStartTime.focus()
+        return
+
+    if(endTime !='' and int(endTime) < 0):
+        messagebox.showwarning ('Wrong Value', 'Inform a value >= 0')
+        entEndTime.focus()
         return
 
     # Get basic video info
     cap = cv2.VideoCapture(filename)
     fps = int(cap.get(cv2.CAP_PROP_FPS))
     num_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    timeSelectArea = 60 * int(secondsSelect) if timeState else int(secondsSelect)
+    startTimeFixed = 60 * int(startTime) if timeState else int(startTime)
+    
+    endTimeFixed = num_frames / fps
+
+    if(endTime != ''):
+        endTimeFixed = int(endTime)
+
+    endTimeFixed = 60 * endTimeFixed if timeState else endTimeFixed
+    endTimeFixed_frames = int(endTimeFixed * fps)
+    startTimeFixed_frames = startTimeFixed * fps
     step = 60 * int(minuteDetail) if timeState else int(minuteDetail)
-    frame_index = int(timeSelectArea * fps)
+    frame_index = int(startTimeFixed * fps)
     cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
     ret, frame = cap.read()
     if not ret:
@@ -106,7 +122,10 @@ def execute() : # Handles the main execution of the program
         if finished:
             mainWindow.tkraise()
 
-    gen = mainNew.run_generator(cap, fps, num_frames, coords, videoOrientationState, tracker, callback)
+    print(f"Start:{frame_index}({startTimeFixed})")
+    print(f"End:{endTimeFixed_frames}({endTimeFixed})")
+
+    gen = mainNew.run_generator(cap, fps, num_frames, coords, videoOrientationState, endTimeFixed_frames, tracker, callback)
     
     def show_next_frame():
         try:
@@ -119,7 +138,7 @@ def execute() : # Handles the main execution of the program
         except StopIteration as e:
             cv2.destroyAllWindows()
             mean_values = e.value  # Get appended values
-            mainNew.processar_resultados(mean_values, timeState, num_frames, timeSelectArea, fps, step, filename)
+            mainNew.processar_resultados(mean_values, timeState, startTimeFixed_frames, endTimeFixed_frames, fps, step, filename)
 
     show_next_frame()
 
@@ -128,12 +147,14 @@ def atualizar_barra(porcentagem):
     lblPorcentagem['text'] = f"{porcentagem:.0f}%"
     root.update_idletasks()
 
+
 def changeTimeState():
     global timeState
     timeState = not timeState
-    btnTime.config(text="Minutes" if timeState else "Seconds")
-    lblTimeStep.config(text="Analysis time step (in minutes)" if timeState else "Analysis time step (in seconds)")
-    lblSelArea.config(text='When to select area? (in minutes)' if timeState else 'When to select area? (in seconds)')
+    if timeState:
+        btnTime.config(text="Minutes")
+    else:
+        btnTime.config(text="Seconds")
     
 def changeShowVideoState():
     global showVideoState
@@ -210,13 +231,17 @@ btnVideoOrientation = ttk.Button(
     command=changeVideoOrientationState
 )
 
-lblTimeStep = Label(mainWindow, text='Analysis time step (in seconds)')
+lblTimeStep = Label(mainWindow, text='Analysis time step')
 
 entMinute = Entry(mainWindow)
 
-lblSelArea = Label(mainWindow, text='When to select area? (in seconds)')
+lblStartTime = Label(mainWindow, text='Start Analysis')
 
-entSelArea = Entry(mainWindow)
+entStartTime = Entry(mainWindow)
+
+lblEndTime = Label(mainWindow, text='End Analysis')
+
+entEndTime = Entry(mainWindow)
 
 btnExecute = ttk.Button(
     mainWindow,
@@ -241,11 +266,13 @@ btnTime.place(relx=0.05, rely=0.35, relwidth=0.28, relheight=0.1)
 btnShowVideo.place(relx=0.36, rely=0.35, relwidth=0.28, relheight=0.1)
 btnVideoOrientation.place(relx=0.67, rely=0.35, relwidth=0.28, relheight=0.1)
 
-lblTimeStep.place(relx=0.05, rely=0.5, relwidth=0.425, relheight=0.1)
-lblSelArea.place(relx=0.525, rely=0.5, relwidth=0.425, relheight=0.1)
+lblTimeStep.place(relx=0.05, rely=0.5, relwidth=0.28, relheight=0.1)
+lblStartTime.place(relx=0.36, rely=0.5, relwidth=0.28, relheight=0.1)
+lblEndTime.place(relx=0.67, rely=0.5, relwidth=0.28, relheight=0.1)
 
-entMinute.place(relx=0.05, rely=0.65, relwidth=0.425, relheight=0.07)
-entSelArea.place(relx=0.525, rely=0.65, relwidth=0.425, relheight=0.07)
+entMinute.place(relx=0.05, rely=0.65, relwidth=0.28, relheight=0.07)
+entStartTime.place(relx=0.36, rely=0.65, relwidth=0.28, relheight=0.07)
+entEndTime.place(relx=0.67, rely=0.65, relwidth=0.28, relheight=0.07)
 
 btnExecute.place(relx=0.7, rely=0.85, relwidth=0.25, relheight=0.1)
 # |||||||||

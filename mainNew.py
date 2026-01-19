@@ -5,6 +5,7 @@ from matplotlib.widgets import RectangleSelector
 from scipy.signal import find_peaks
 from matplotlib.backends.backend_pdf import PdfPages
 from datetime import datetime
+import pandas as pd
 
 
 def getRoiArea(frame: np.array): # Get the coordinates of the ROI selected, returns None otherwise
@@ -99,18 +100,18 @@ def drawRectangle(frame_gray: np.ndarray, x:int, y:int, width:int, height:int, v
     return frame_barra
 
 def run_generator(video, fps: int, num_frames: int, coords: dict,
-                  videoOrientationHorizontal: bool, tracker, callback=None): # Apply filters and crops to video/Send frames to Application show/Stores frames info
+                  videoOrientationHorizontal: bool, endFrame: int, tracker, callback=None): # Apply filters and crops to video/Send frames to Application show/Stores frames info
     
     mean_values = [] # Variable that stores the average brightness of the ROI
     frameCounter = int(video.get(cv2.CAP_PROP_POS_FRAMES))
 
     while video.isOpened():
         ret, frame = video.read()
-        if not ret:
+        if not ret or frameCounter >= endFrame:
             break
 
         if callback: # Calls the function to update the loading bar
-            callback((frameCounter * 100.0) / num_frames)
+            callback((frameCounter * 100.0) / endFrame)
 
         frameCounter += 1
 
@@ -142,7 +143,7 @@ def run_generator(video, fps: int, num_frames: int, coords: dict,
     # Return the array with mean_values
     return np.array(mean_values)
     
-def processar_resultados(mean_values: np.ndarray, timeMode: bool, num_frames: int, timeSelectArea: int, fps: int, step: int, fileName: str): # Calculates and shows information
+def processar_resultados(mean_values: np.ndarray, timeMode: bool, startTime_frames: int, endTime_frames: int, fps: int, step: int, fileName: str): # Calculates and shows information
     # Determines the graph title base on (timeMode = True [minutes], timeMode = False [seconds])
     title = "minutos" if timeMode else "segundos"
     
@@ -155,7 +156,7 @@ def processar_resultados(mean_values: np.ndarray, timeMode: bool, num_frames: in
     print(f"\nMedia intensidade ROI: {intensity_avg:.2f}")
     print(f"Maior intensidade ROI: {greatest_intensity:.2f}")
     
-    duration_sec = int((num_frames - (timeSelectArea * fps)) / fps)
+    duration_sec = int((endTime_frames - startTime_frames) / fps)
     bpm = (len(peaks) / duration_sec) * 60
     
     print(f"Segs: {duration_sec}, BPM: {bpm:.2f}")
@@ -167,7 +168,7 @@ def processar_resultados(mean_values: np.ndarray, timeMode: bool, num_frames: in
     step_times = []
     
     
-    for i in range(0, num_frames, frames_por_step):
+    for i in range(0, (endTime_frames - startTime_frames), frames_por_step):
         #step_interval = mean_values[i : i + frames_por_step]
         
         peaks_local = peaks[(peaks >= i) & (peaks < i + frames_por_step)]
@@ -176,20 +177,21 @@ def processar_resultados(mean_values: np.ndarray, timeMode: bool, num_frames: in
         bpms_steps.append(bpm_local)
         
         step_time = i / fps
-        timeOffset = timeSelectArea
+        timeOffset = startTime_frames / fps
         if timeMode:
             step_time /= 60
             timeOffset /= 60
         step_times.append(step_time + timeOffset)
     
     # Get frames to seconds array
-    seconds = np.arange(num_frames) / fps
-    peaks_seconds = (peaks / fps) + timeSelectArea
+    seconds = np.arange(startTime_frames, endTime_frames) / fps
+    peaks_seconds = (peaks / fps) + (startTime_frames / fps)
     
     # Graph sections
     fig1 = plt.figure()
-    max_len = min(len(seconds[timeSelectArea * fps : ]), len(mean_values)) # Get the max len that seconds or mean_values can have (Fix missing frames)
-    plt.plot(seconds[timeSelectArea * fps : (timeSelectArea * fps) + max_len], mean_values[: max_len])
+    #max_len = min(len(seconds[startTime_frames: endTime_frames]), len(mean_values)) # Get the max len that seconds or mean_values can have (Fix missing frames)
+    
+    plt.plot(seconds[1:], mean_values)
     plt.plot(peaks_seconds, mean_values[peaks], 'ro', label="Picos")
     plt.xlabel("Segundos")
     plt.ylabel("Intensidade Média")
@@ -211,7 +213,7 @@ def processar_resultados(mean_values: np.ndarray, timeMode: bool, num_frames: in
     dataAnalise = datetime.today().strftime("%d/%m/%Y")
     horaAnalise = datetime.today().strftime("%H:%M:%S")
     
-    report_text = f"[Video Info]\nFile Name: {fileName} \nFPS: {fps} \nFrames: {num_frames} \nBPM: {bpm:.2f} \
+    report_text = f"[Video Info]\nFile Name: {fileName} \nFPS: {fps} \nFrames: {endTime_frames - startTime_frames} \nBPM: {bpm:.2f} \
     \nMedia de intensidade na ROI: {intensity_avg:.2f} \nMaior intensidade na ROI: {greatest_intensity:.2f} \
     \nData: {dataAnalise} - {horaAnalise}\n"
     with PdfPages(pdf_filename) as pdf:
@@ -225,3 +227,14 @@ def processar_resultados(mean_values: np.ndarray, timeMode: bool, num_frames: in
         plt.close(fig_text)
         plt.close(fig1)
         plt.close(fig2)
+
+    # Create CSV File
+    csv_data = {
+        f"{title}": step_times,
+        "BPMS": bpms_steps,
+        # f"{title}": seconds[timeSelectArea * fps : (timeSelectArea * fps) + max_len],
+        # "Intensidade": mean_values[: max_len]
+    }
+
+    df = pd.DataFrame(csv_data)
+    df.to_csv("dados.csv", index=False)
