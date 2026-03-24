@@ -145,11 +145,12 @@ def run_generator(video, fps: int, num_frames: int, coords: dict,
     
 def processar_resultados(mean_values: np.ndarray, timeMode: bool, startTime_frames: int, endTime_frames: int, fps: int, step: int, fileName: str): # Calculates and shows information
     # Determines the graph title base on (timeMode = True [minutes], timeMode = False [seconds])
-    title = "minutos" if timeMode else "segundos"
+    title = "minutes" if timeMode else "seconds"
     
     # Uses a function that gathers peaks in a list of values
     #mean_values = np.array(mean_values)
     peaks, _ = find_peaks(mean_values, prominence=0.7)
+    trough, _ = find_peaks(-mean_values, prominence=0.7)
     
     intensity_avg = np.mean(mean_values)
     greatest_intensity = np.max(mean_values)
@@ -186,24 +187,53 @@ def processar_resultados(mean_values: np.ndarray, timeMode: bool, startTime_fram
     # Get frames to seconds array
     seconds = np.arange(startTime_frames, endTime_frames) / fps
     peaks_seconds = (peaks / fps) + (startTime_frames / fps)
+    trough_seconds = (trough / fps) + (startTime_frames / fps)
     
+    tempo_contracoes = []
+    tempo_relaxamentos = []
+    for pico in peaks_seconds:
+        vales_antes = trough_seconds[trough_seconds < pico]
+        vales_depois = trough_seconds[trough_seconds > pico]
+
+        if len(vales_antes) == 0:
+            tempo_contracoes.append(np.nan)
+        else:
+            vale_antes_prox = vales_antes[-1]
+            tempo_contracoes.append(pico - vale_antes_prox)
+
+        if len(vales_depois) == 0:
+            tempo_relaxamentos.append(np.nan)
+        else:
+            vale_depois_prox = vales_depois[0]
+            tempo_relaxamentos.append(pico - vale_depois_prox)
+
     # Graph sections
-    fig1 = plt.figure()
-    #max_len = min(len(seconds[startTime_frames: endTime_frames]), len(mean_values)) # Get the max len that seconds or mean_values can have (Fix missing frames)
     
-    plt.plot(seconds[1:], mean_values)
-    plt.plot(peaks_seconds, mean_values[peaks], 'ro', label="Picos")
-    plt.xlabel("Segundos")
-    plt.ylabel("Intensidade Média")
-    plt.legend()
+    #max_len = min(len(seconds[startTime_frames: endTime_frames]), len(mean_values)) # Get the max len that seconds or mean_values can have (Fix missing frames)
     
     if timeMode:
         step /= 60
     fig2 = plt.figure(figsize=(12,6))
     plt.bar(step_times, bpms_steps, width=step, align="edge", edgecolor="black")
-    plt.xlabel('Tempo (início da janela)')
+    plt.xlabel('Time (Window start)')
     plt.ylabel('BPM')
-    plt.title(f'BPM por janela de {step} {title}')
+    plt.title(f'BPM in {step} {title} window')
+
+    fig1 = plt.figure()
+    plt.plot(seconds[1:], mean_values)
+    plt.plot(peaks_seconds, mean_values[peaks], 'ro', label="Peaks")
+    plt.plot(trough_seconds, mean_values[trough], 'go', label="Valleys")
+    plt.xlabel("Seconds")
+    plt.ylabel("Average Intensity")
+    plt.legend()
+
+    fig3 = plt.figure(figsize=(12,6))
+    plt.bar([x for x in range(1, len(peaks_seconds) + 1)], tempo_contracoes, align="edge", edgecolor="black", label="Contraçoes")
+    plt.bar([x for x in range(1, len(peaks_seconds) + 1)], tempo_relaxamentos, align="edge", edgecolor="black", label="Relaxamentos")
+    plt.xlabel("Beat number")
+    plt.ylabel("Seconds")
+    plt.title("Systole/Diastole time comparison")
+
     
     # Create PDF
     #timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -219,7 +249,8 @@ def processar_resultados(mean_values: np.ndarray, timeMode: bool, startTime_fram
     with PdfPages(pdf_filename) as pdf:
         pdf.savefig(fig1)
         pdf.savefig(fig2)
-        
+        pdf.savefig(fig3)
+
         fig_text = plt.figure()
         plt.axis('off')
         plt.text(0.01, 0.95, report_text, ha='left', va='top', fontsize=14, wrap=True)
@@ -227,14 +258,29 @@ def processar_resultados(mean_values: np.ndarray, timeMode: bool, startTime_fram
         plt.close(fig_text)
         plt.close(fig1)
         plt.close(fig2)
+        plt.close(fig3)
 
     # Create CSV File
-    csv_data = {
+    csv_data_steps = {
         f"{title}": step_times,
         "BPMS": bpms_steps,
-        # f"{title}": seconds[timeSelectArea * fps : (timeSelectArea * fps) + max_len],
-        # "Intensidade": mean_values[: max_len]
     }
 
-    df = pd.DataFrame(csv_data)
-    df.to_csv("dados.csv", index=False)
+    csv_data_frames = {
+        "Frames":  [x for x in range(1, len(mean_values) + 1)],
+        "Valor": mean_values
+    }
+
+    csv_data_updowm = {
+        "Batimento": [x for x in range(1, len(peaks_seconds) + 1)],
+        "Tempo Subida": tempo_contracoes,
+        "Tempo Descida": tempo_relaxamentos,
+    }
+
+    df_steps = pd.DataFrame(csv_data_steps)
+    df_frames = pd.DataFrame(csv_data_frames)
+    df_updown = pd.DataFrame(csv_data_updowm)
+
+    df_steps.to_csv("intervalos.csv", index=False)
+    df_frames.to_csv("frames.csv", index=False)
+    df_updown.to_csv("subidaDescida.csv", index=False)

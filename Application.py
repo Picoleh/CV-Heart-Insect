@@ -315,3 +315,6 @@ style.map(
 
 root.protocol("WM_DELETE_WINDOW", on_close)
 root.mainloop()
+
+
+# pyinstaller --noconsole --onefile Application.py
