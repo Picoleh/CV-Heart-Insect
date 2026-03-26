@@ -167,6 +167,7 @@ def processar_resultados(mean_values: np.ndarray, timeMode: bool, startTime_fram
     frames_por_step = step * fps
     bpms_steps = []
     step_times = []
+    n_beats_steps = []
     
     
     for i in range(0, (endTime_frames - startTime_frames), frames_por_step):
@@ -176,6 +177,7 @@ def processar_resultados(mean_values: np.ndarray, timeMode: bool, startTime_fram
         
         bpm_local = (len(peaks_local) / step) * 60
         bpms_steps.append(bpm_local)
+        n_beats_steps.append(len(peaks_local))
         
         step_time = i / fps
         timeOffset = startTime_frames / fps
@@ -214,7 +216,9 @@ def processar_resultados(mean_values: np.ndarray, timeMode: bool, startTime_fram
     if timeMode:
         step /= 60
     fig2 = plt.figure(figsize=(12,6))
-    plt.bar(step_times, bpms_steps, width=step, align="edge", edgecolor="black")
+    fig2_bar_values = plt.bar(step_times, bpms_steps, width=step, align="edge", edgecolor="black")
+    plt.bar_label(fig2_bar_values, padding=3) 
+    plt.ylim(0, 200)  
     plt.xlabel('Time (Window start)')
     plt.ylabel('BPM')
     plt.title(f'BPM in {step} {title} window')
@@ -228,6 +232,14 @@ def processar_resultados(mean_values: np.ndarray, timeMode: bool, startTime_fram
     plt.legend()
 
     fig3 = plt.figure(figsize=(12,6))
+    fig3_bars_values = plt.bar(step_times, n_beats_steps, width=step, align="edge", edgecolor="black", color="orange")
+    plt.bar_label(fig3_bars_values, padding=3)
+    plt.ylim(0, max(n_beats_steps) + 2) 
+    plt.xlabel('Time (Window start)')
+    plt.ylabel('Nº of heartbeats')
+    plt.title(f'Nº of heartbeats in {step} {title} window')
+
+    fig4 = plt.figure(figsize=(12,6))
     plt.bar([x for x in range(1, len(peaks_seconds) + 1)], tempo_contracoes, align="edge", edgecolor="black", label="Contraçoes")
     plt.bar([x for x in range(1, len(peaks_seconds) + 1)], tempo_relaxamentos, align="edge", edgecolor="black", label="Relaxamentos")
     plt.xlabel("Beat number")
@@ -250,6 +262,7 @@ def processar_resultados(mean_values: np.ndarray, timeMode: bool, startTime_fram
         pdf.savefig(fig1)
         pdf.savefig(fig2)
         pdf.savefig(fig3)
+        pdf.savefig(fig4)
 
         fig_text = plt.figure()
         plt.axis('off')
@@ -259,11 +272,13 @@ def processar_resultados(mean_values: np.ndarray, timeMode: bool, startTime_fram
         plt.close(fig1)
         plt.close(fig2)
         plt.close(fig3)
+        plt.close(fig4)
 
     # Create CSV File
     csv_data_steps = {
         f"{title}": step_times,
         "BPMS": bpms_steps,
+        "Number_HeartBeats": n_beats_steps
     }
 
     csv_data_frames = {
